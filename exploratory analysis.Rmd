@@ -1,0 +1,220 @@
+---
+title: "exploratory analysis"
+output: html_notebook
+---
+
+
+#Independent t-test- observing gender differences
+
+```{r, loadlib, echo=T, results='hide', message=F, warning=F}
+library(mosaic)
+library(sjlabelled)
+library(fastDummies)
+library(supernova)
+library(readr)
+library(rstatix)
+library(Hmisc)
+library(ggpubr)
+library(mice)
+library(MoEClust)
+library(miceadds)
+library(psych)
+library(naniar)
+library(sjlabelled)
+library(tidyverse)
+```
+
+
+#opening dataset 
+
+Data can be found in the appendices section of the compendium
+
+```{r}
+IRP<- read_csv("C:/Users/hanam/OneDrive/Desktop/202100114-Compendium/Appendices/IRP.csv")
+head(IRP)
+```
+#Data cleaning 
+
+From previous confirmatory analysis, I ascertained my dataset was completely observed and had no missing data. However, I will still screen for univariate and multivariate outliers.
+
+```{r}
+IRP <-
+  IRP %>%
+  rowwise()%>%
+  mutate(meanim = mean(c(IM1, IM2, IM3, IM4, IM5, IM6, IM7, IM8, IM9, IM10, IM11, IM12, IM13, IM14, IM15, IM16, IM17)))
+IRP
+```
+#removing univariate outliers 
+
+Univariate outliers are extreme values in just one variable, indicated by very high standardized scores (called z scores greater than 3.29). To find these outliers, we make our variables comparable and discard any data points with z scores above 3.29. Let's go ahead and identify and remove these outliers.
+
+```{r}
+# Remove impression management outliers
+IRP$zim <- scale(IRP$meanim)
+IRP <- 
+  IRP %>%
+  filter(zim >= -3.30 & zim <= 3.30)
+IRP
+```
+#Removing multivariate outliers 
+Multivariate outliers are data points that stand out in two or more variables simultaneously. To detect them, we calculate a Mahalanobis distance for each case, which measures how far away it is from the average in multiple dimensions. Similar to finding univariate outliers, we screen these Mahalanobis distances to identify extreme values.
+
+In R, to compute the Mahalanobis distance, we'll use a linear model and the MoE_mahala function. After running this linear model, we'll have a new variable containing the Mahalanobis distances in our dataset.
+
+Let's proceed with running the linear model for our imputed data to identify these multivariate outliers.
+
+```{r}
+linear.model <- lm(IM1 ~ meanim, data=IRP)
+IRP$res  <- IRP_var$IM1 - predict(linear.model) # save residuals
+IRP$mahal <- MoE_mahala(linear.model, IRP$res)
+IRP
+summary(linear.model)
+```
+From this model we can see the degrees of freedom is one. Therefore we will calculate the mahalanobis value based off this and a p-value of 0.001
+
+```{r}
+df <- 1  # degrees of freedom
+alpha <- 0.001  # significance level (p-value)
+
+critical_value <- qchisq(1 - alpha, df)
+```
+
+10.83- mahalnobis distance
+
+We will use this value to filter extreme values.
+
+```{r}
+IRP <- 
+  IRP %>%
+  filter(mahal <= 10.83)
+IRP
+```
+In the original dataset, male was coded as 1, whilst female was coded as 2, in order to enhance interpretability I will use the dplyr() function to verbally identify these numerical codes. I will also select only the core variables I'm analysing within this exploratory analysis- being impression management and gender.
+
+```{r}
+df_gender <- IRP %>%
+  mutate(
+    gender = case_when(
+      gender == 1 ~ "male",
+      gender == 2 ~ "female"
+    )
+  ) %>%
+  select(gender, meanim)
+
+df_gender
+
+```
+
+Here I am ascertaining the number of participants in my male and female sample. Due to concerns of an uneven sampling, I need to determine whether or not my data fulfills expectations of normality and equality of variances in order to motivate my independent t-test.
+
+```{r}
+library(dplyr)
+
+gender_counts <- df_gender %>% count(gender)
+
+gender_counts
+
+```
+I have more female than male participants.
+
+Here I am using an F-test to check for equality of variances between my 2 samples
+
+```{r}
+# Filter the data frame for males and females separately
+men_data <- df_gender %>% filter(gender == "male")
+women_data <- df_gender %>% filter(gender == "female")
+
+# F-test for comparing variances between male and female groups
+f_test_result <- var.test(men_data$meanim, women_data$meanim)
+
+# Print the result
+print(f_test_result)
+
+```
+The F-test assesses whether the variances of the impression management differ significantly between males and females. In this case, the obtained F-statistic is close to 1, and the associated p-value is 0.9833, which is greater than the typical significance level of 0.05. This suggests that there is no significant difference in variances between the male and female groups. Additionally, the 95% confidence interval for the ratio of variances includes 1, further supporting the conclusion of no significant difference.
+
+Based on these results, the assumption of equal variances appears to hold. Therefore, satisfying the conditions of an independent t-test.
+
+#checking for normality 
+
+```{r}
+install.packages("moments")
+library(moments)
+favstats(IRP$meanim)
+kurtosis(IRP$meanim)
+skew(IRP$meanim)
+```
+a kurtosis of 2.8484 suggests that the distribution of impression management scores is moderately peaked, but not excessively so.
+
+a skewness of 0.3210 suggests a slight right-skew in the distribution of impression management scores, indicating that there may be a tendency towards higher levels of impression management among participants.
+
+The standard deviation is 0.1229. The relatively small standard deviation suggests that there is less variability in the reported levels of impression management among participants. 
+
+Based on the provided statistics, it appears to approximate a normal distribution with slight deviations
+
+*Research Question* - Do levels of impression management differ between males and females?
+
+*Null Hypothesis* - The difference between male and female levels of impression management will be zero.
+
+##descriptives
+
+```{r}
+favstats(~meanim, gender, data=df_gender)
+```
+#setting up linear model
+
+```{r}
+df_gender$dummy <- ifelse(df_gender$gender == c("female"), 1, 0) 
+df_gender
+```
+
+```{r}
+gender.model <- lm(meanim ~ 1 + dummy, data=df_gender) 
+
+summary(gender.model)
+```
+#results 
+
+Intercept (0.524160): This is the estimated mean value of 'impression management' for the reference group, which in this case seems to be males since 'dummy' is set to 0 for males.
+
+Dummy (-0.002204): This coefficient represents the difference in the mean 'impression management' between the reference group (males) and the group of interest (females). However, the coefficient is not statistically significant (p = 0.921), suggesting that there is no significant difference in mean 'impression management' between males and females.
+
+Additionally, the low R-squared values and the non-significant F-statistic suggest that the model does not explain much of the variance in 'impression management'
+
+#partitioning variance 
+
+```{r}
+library(supernova)
+supernova(gender.model)
+```
+A high p-value (0.9206) indicates that the model is not statistically significant.
+
+the F-value is 0.010, indicates that the model does not significantly explain the variance in 'impression management'
+
+```{r}
+t.test(df_gender$meanim ~ df_gender$dummy, var.equal=TRUE)
+```
+The 95% confidence interval for the difference in means between the two groups ranges from -0.04145643 to 0.04586523. This interval provides a range of plausible values for the true difference in mean 'impression management' scores between genders. Since it includes zero, it further supports the conclusion that there is no significant difference in mean scores between the two groups.
+
+
+#plot
+
+```{r}
+df_gender %>%
+ggplot(aes(x= gender, y = meanim)) + 
+  geom_boxplot(width = 0.3, fill = "white") +
+  geom_jitter(aes(color = as.factor(gender), shape = as.factor(gender)), width = 0.1, size = 1) + 
+  xlab(NULL) +
+  ggtitle("Box-Plots for gender differences in impression management") +
+  theme_minimal(base_size = 8) +
+  theme(legend.title=element_blank())
+```
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,685 @@
+---
+title: "Confirmatory analysis"
+output: html_notebook
+---
+
+```{r, message=FALSE, warning=FALSE}
+install.packages("https://cran.r-project.org/src/contrib/Archive/MissMech/MissMech_1.0.2.tar.gz", repos=NULL, type="source")
+install.packages("moments")
+library(psych)
+library(naniar)
+library(sjlabelled)
+library(tidyverse)
+library(mice)
+library(VIM)
+library(MissMech)
+library(mice)
+library(MoEClust)
+library(miceadds)
+library(readr)
+library(lavaan)
+library(semPlot)
+library(dplyr)
+library(tidyverse)
+library(Hmisc)
+library(mosaic)
+library(psych)
+library(moments)
+```
+
+#load data
+
+Data can be found in the appendices folder of the compendium.
+
+```{r}
+IRP<- read_csv("C:/Users/hanam/OneDrive/Desktop/202100114- Research Compendium/Appendices/IRP.csv")
+head(IRP)
+```
+
+#data screening and cleaning
+
+Determining the amount and pattern of missing data.
+
+```{r}
+IRP_var <-
+  IRP %>%
+  select(3:48) # select out only the items
+md.pattern(IRP)
+```
+
+dataset is fully observed
+
+this is calculating the means of specific sets of variables
+
+```{r}
+IRP <-
+  IRP %>%
+  rowwise()%>%
+  mutate(meancollectivism = mean(c(HC1, HC2, HC3, HC4, VC1, VC2, VC3, VC4))) %>%
+  mutate(meanperfectionism = mean(c(P1, P2, P3, P4, P5, P6, P7, P8))) %>%
+  mutate(meanim = mean(c(IM1, IM2, IM3, IM4, IM5, IM6, IM7, IM8, IM9, IM10, IM11, IM12, IM13, IM14, IM15, IM16, IM17))) %>% 
+  mutate(meanls = mean(c(LS1, LS2, LS3, LS4, LS5))) 
+IRP
+```
+
+#Univariate outliers
+
+Univariate outliers are extreme values in just one variable, indicated by very high standardized scores (called z scores greater than 3.29). To find these outliers, we make our variables comparable and discard any data points with z scores above 3.29. Let's go ahead and identify and remove these outliers.
+
+```{r}
+# Standardize variables
+
+IRP$zcollectivism <- scale(IRP$meancollectivism)
+IRP$zperfectionism <- scale(IRP$meanperfectionism)
+IRP$zim <- scale(IRP$meanim)
+IRP$zls <- scale(IRP$meanls)
+
+# Remove collectivism outliers
+
+IRP <- 
+  IRP %>%
+  filter(zcollectivism >= -3.30 & zcollectivism <= 3.30)
+IRP
+
+# Remove perfectionism outliers
+
+IRP <- 
+  IRP %>%
+  filter(zperfectionism >= -3.30 & zperfectionism <= 3.30)
+IRP
+
+# Remove impression management outliers
+
+IRP <- 
+  IRP %>%
+  filter(zim >= -3.30 & zim <= 3.30)
+IRP
+
+#Remove life satisfaction outliers
+
+IRP <- 
+  IRP %>%
+  filter(zls >= -3.30 & zls <= 3.30)
+IRP
+```
+
+#multivariate outliers
+
+Multivariate outliers are data points that stand out in two or more variables simultaneously. To detect them, we calculate a Mahalanobis distance for each case, which measures how far away it is from the average in multiple dimensions. Similar to finding univariate outliers, we screen these Mahalanobis distances to identify extreme values.
+
+In R, to compute the Mahalanobis distance, we'll use a linear model and the MoE_mahala function. After running this linear model, we'll have a new variable containing the Mahalanobis distances in our dataset.
+
+Let's proceed with running the linear model for our imputed data to identify these multivariate outliers.
+
+```{r}
+linear.model <- lm(IM1 ~ meancollectivism + meanperfectionism + meanim + meanls, data=IRP)
+IRP$res  <- IRP_var$IM1 - predict(linear.model) # save residuals
+IRP$mahal <- MoE_mahala(linear.model, IRP$res)
+IRP
+summary(linear.model)
+```
+
+Calculating the mahalanobis distance
+
+```{r}
+df <- 4  # degrees of freedom
+alpha <- 0.001  # significance level (p-value)
+
+critical_value <- qchisq(1 - alpha, df)
+```
+
+Based on the output, I will find the critical value of chi square for the degrees of freedom, at p=0.001
+
+```{r}
+#For the degrees of freedom of 4- and a p value of 0.001 our mahalnobis distance is 18.47 based on the previous calculation 
+
+IRP <- 
+  IRP %>%
+  filter(mahal <= 18.47)
+IRP
+```
+
+#Descriptive statistics
+
+The below code is how I'd extract the distribution, mean, kurtosis, and skew of my focal variables.
+
+```{r}
+#collectivism statistics
+
+describe(IRP$meancollectivism)
+
+library(ggplot2)
+ggplot(IRP, aes(x=meancollectivism)) +
+   geom_histogram(aes(y=..density..), colour="black", fill="white")+
+ geom_density(alpha=.2, fill="#FF6666") +
+  geom_vline(aes(xintercept=mean(meancollectivism)),
+            color="blue", linetype="dashed", size=1) +
+   labs(title="collectivism distribution",x="collectivism", y = "density")+
+  theme_classic()
+```
+
+```{r}
+#perfectionism statistics
+
+describe(IRP$meanperfectionism)
+
+library(ggplot2)
+ggplot(IRP, aes(x=meanperfectionism)) +
+   geom_histogram(aes(y=..density..), colour="black", fill="white")+
+ geom_density(alpha=.2, fill="#FF6666") +
+  geom_vline(aes(xintercept=mean(meanperfectionism)),
+            color="blue", linetype="dashed", size=1) +
+   labs(title="perfectionism distribution",x="perfectionism", y = "density")+
+  theme_classic()
+```
+
+```{r}
+#impression management statistics
+
+describe(IRP$meanim)
+
+library(ggplot2)
+ggplot(IRP, aes(x=meanim)) +
+   geom_histogram(aes(y=..density..), colour="black", fill="white")+
+ geom_density(alpha=.2, fill="#FF6666") +
+  geom_vline(aes(xintercept=mean(meanim)),
+            color="blue", linetype="dashed", size=1) +
+   labs(title="impression management distribution",x="impression management", y = "density")+
+  theme_classic()
+```
+
+```{r}
+#life satisfaction statistics
+
+describe(IRP$meanls)
+
+library(ggplot2)
+ggplot(IRP, aes(x=meanls)) +
+   geom_histogram(aes(y=..density..), colour="black", fill="white")+
+ geom_density(alpha=.2, fill="#FF6666") +
+  geom_vline(aes(xintercept=mean(meanls)),
+            color="blue", linetype="dashed", size=1) +
+   labs(title="life satisfaction distribution",x="life satisfaction", y = "density")+
+  theme_classic()
+```
+
+descriptive statistics for collectivism
+
+```{r}
+favstats(IRP$meancollectivism)
+kurtosis(IRP$meancollectivism)
+skew(IRP$meancollectivism)
+```
+
+descriptive statistics for perfectionism
+
+```{r}
+favstats(IRP$meanperfectionism)
+kurtosis(IRP$meanperfectionism)
+skew(IRP$meanperfectionism)
+```
+
+descriptive statistics for impression management
+
+```{r}
+favstats(IRP$meanim)
+kurtosis(IRP$meanim)
+skew(IRP$meanim)
+```
+
+descriptive statistics for life satisfaction
+
+```{r}
+favstats(IRP$meanls)
+kurtosis(IRP$meanls)
+skew(IRP$meanls)
+```
+
+#Creating measurement model- SEM
+
+*Latent variable 1: Collectivism* measured by the INDCOL (Triandis & Gelfand, 1998), this included 4 items on horizontal collectivism and 4 items on vertical collectivism. Items were answered on a 9-point likert scale, 1 being completely disagree/ never, and 9 being completely agree/always. Vertical collectivism focuses on acceptance of hierarchy and authority, whilst horizontal collectivism emphasizes equality, cooperation, and shared responsibilities within social groups. Both of these dimensions will form our latent collectivism variable.
+
+items for latent colllectivism include: HC1, HC2, HC3, HC4, VC1, VC2, VC3, VC4.
+
+*Latent variable 2: Impression management* measured by the SDS-17 (Stöber, 2001), this included 17 items on a 2-point likert scale 'true' and false'. True was coded as 1 and false as 0, questions IM1, IM4, IM6, IM7, IM11, IM15, and IM17 were reverse keyed. The instrument was designed to measure impression management and self-deception, impression management can be understood as the deliberate effort to shape perceptions, behaviors, and expressions to convey a particular image or impression to others, often aligned with personal or situational objectives. It plays a significant role in social interactions, self-presentation, and how individuals are perceived in various contexts.
+
+items for latent impression management include: IM1, IM2, IM3, IM4, IM5, IM6, IM7, IM8, IM9, IM10, IM11, IM12, IM13, IM14, IIM15, IM16, and IM17.
+
+*Latent variable 3: Perfectionism* measured by the APS-R, (Slaney et al., 2001). This included 8 items on order, discrepancy, and high standards. Items were answered on a 6-point Likert scale, 1 being completely disagree abd 6 being completely agree. These dimensions align with the broader framework of perfectionism, emphasizing the tendencies related to setting high standards for oneself and others, along with concerns and anxieties surrounding mistakes or imperfections. The APS provides insights into different aspects of perfectionism.
+
+Items for latent perfectionism include: P1, P2, P3, P4, P5, P6, P7, P8.
+
+*Latent variable 4: Life satisfaction* measured by the SWLS (Diener et al., 1985). This included 5 items on a 7-point likert scale. 1 being completely disagree and 7 being completely agree. Life satisfaction refers to an individual's overall evaluation or subjective judgment of their life as a whole. It encompasses an individual's cognitive assessment and emotional appraisal of various domains of their life.
+
+Items for latent life satisfaction: LS1, LS2, LS3, LS4, LS5.
+
+```{r}
+measurement.model <- "
+impression_management=~ 1*IM1 + IM2 + IM3 + IM4 + IM5 + IM6 + IM7 + IM8 + IM9 + IM10 + IM11 + IM12 + IM13 + IM14 + IM15 + IM16 + IM17
+collectivism=~ 1*HC1 + HC2 + HC3 + HC4 + VC1 + VC2 + VC3 + VC4
+perfectionism=~ 1*P1 + P2 + P3 + P4 + P5 + P6 + P7 + P8
+life_satisfaction=~ 1*LS1 + LS2 + LS3 + LS4 + LS5"
+```
+
+Fit indexes and model parameters
+
+```{r}
+measurement.model.fit <- cfa(measurement.model, data=IRP)
+summary(measurement.model.fit, fit.measures=TRUE, standardized=TRUE)
+```
+
+The Standardized Root Mean Square Residual (SRMR) is 0.085, which is above the commonly recommended threshold of 0.08, indicating some discrepancy between the observed and model-implied covariance matrices. The Root Mean Square Error of Approximation (RMSEA) is 0.041, falling within an acceptable range, supported by its 90 percent confidence interval (CI) of 0.029 to 0.050. However, the p-values associated with the null hypotheses that RMSEA is less than or equal to 0.050 and greater than or equal to 0.080 are 0.941 and 0.000, respectively. The Comparative Fit Index (CFI) and Tucker-Lewis Index (TLI) both fall considerably below the ideal threshold of 0.95, indicating poor fit. Overall, while the RMSEA suggests reasonable fit, the SRMR, CFI, and TLI indicate significant room for improvement.
+
+-   impression_management- items with low loadings, such as "IM3, "IM2", "IM4," "IM9," "IM10," "IM13," "IM14," and "IM15."
+
+-   collectivism- items with low loadings or high standard errors. In this case, "HC2," "HC3," "HC4," "VC1," "VC3," and "VC4"
+
+-   perfectionism- items with low loadings or high standard errors, "P2" and "P8" have low loadings and/or high standard errors
+
+-   life_satisfaction- items with low loadings or high standard errors "LS3," and "LS5" have low loadings and/or high standard errors
+
+building second measurement model Now that we've obtained items which do not capture the underlying construct, we will remove them from our measurement model. Removing items with low factor loadings from a measurement model or CFA can lead to a more parsimonious, valid, and interpretable model. It enhances construct validity, refines our measurement model, avoids model misspecification, and improves interpretability.
+
+```{r}
+measurement.model2 <- "
+impression_management=~ 1*IM1 + IM5 + IM6 + IM7 + IM8 + IM11 + IM12 + IM16 + IM17
+collectivism=~ 1*HC1 + VC2 
+perfectionism=~ 1*P1 + P3 + P4 + P5 + P6 + P7 
+life_satisfaction=~ 1*LS1 + LS2 + LS4"
+```
+
+```{r}
+measurement.model.fit2 <- cfa(measurement.model2, data=IRP)
+summary(measurement.model.fit2, fit.measures=TRUE, standardized=TRUE)
+```
+
+After removing items with low loadings, the measurement model exhibits much improved fit indices across the board. The Comparative Fit Index (CFI) and Tucker-Lewis Index (TLI) both achieve perfect scores, with the CFI reaching 1.000 and the TLI surpassing the ideal threshold at 1.730. The Root Mean Square Error of Approximation (RMSEA) drops to 0.000, indicating an exact fit to the data, supported by its 90 percent confidence interval (CI) ranging from 0.000 to 0.031. Additionally, the p-values associated with the null hypotheses concerning RMSEA further validate the excellent fit, with 0.999 for RMSEA ≤ 0.050 and 0.000 for RMSEA ≥ 0.080. The Standardized Root Mean Square Residual (SRMR) decreases to 0.076, suggesting a decrease in the discrepancy between observed and model-implied covariance matrices. Overall, these fit indices suggest that the revised measurement model, with low-loading items removed, provides an excellent representation of the data and meets the criteria for good model fit across multiple indices.
+
+However, while our confirmatory factor analysis (CFA) yielded perfect fit indexes, the decision to further remove items with negative factor loadings and create a third measurement model was driven by considerations of construct validity and theoretical coherence. Despite the overall model fit, negative factor loadings indicate potential discrepancies between certain items and the underlying construct. These negative loadings suggest that these items may not be effectively measuring the intended latent construct, which could compromise the validity and interpretability of our results
+
+#composite reliability
+
+```{r}
+# save standardised factor loadings in object s1
+sl <- standardizedSolution(measurement.model.fit2)
+
+sl <- drop_na(sl, est.std)
+
+# extract from s1 standardised estimates (est.std) form only parent conditional regard
+sl <- sl$est.std[sl$lhs == "impression_management"]
+
+
+# calculate the residual variances
+re <- 1 - sl^2
+
+
+# calculate the composite reliability
+sum(sl)^2 / (sum(sl)^2 + sum(re))
+```
+
+composite reliability scores should ideally be above 0.7 to ensure sufficient reliability. A score as low as 0.06 indicates a significant lack of reliability.
+
+```{r}
+# save standardised factor loadings in object s1
+sl <- standardizedSolution(measurement.model.fit2)
+
+# extract from s1 standardised estimates (est.std) form only parent conditional regard
+sl <- sl$est.std[sl$lhs == "collectivism"]
+
+# calculate the residual variances
+re <- 1 - sl^2
+
+
+# calculate the composite reliability
+sum(sl)^2 / (sum(sl)^2 + sum(re))
+```
+
+While this score falls below the ideal threshold of 0.7, it suggests a somewhat better level of reliability compared to the impression management measure.
+
+```{r}
+# save standardised factor loadings in object s1
+sl <- standardizedSolution(measurement.model.fit2)
+
+sl <- drop_na(sl, est.std)
+
+# extract from s1 standardised estimates (est.std) form only parent conditional regard
+sl <- sl$est.std[sl$lhs == "perfectionism"]
+
+# calculate the residual variances
+re <- 1 - sl^2
+
+# calculate the composite reliability
+sum(sl)^2 / (sum(sl)^2 + sum(re))
+```
+
+A composite reliability score of 0.05 for perfectionism indicates very poor reliability.
+
+```{r}
+# save standardised factor loadings in object s1
+sl <- standardizedSolution(measurement.model.fit2)
+
+# extract from s1 standardised estimates (est.std) form only parent conditional regard
+sl <- sl$est.std[sl$lhs == "life_satisfaction"]
+
+# calculate the residual variances
+re <- 1 - sl^2
+
+# calculate the composite reliability
+sum(sl)^2 / (sum(sl)^2 + sum(re))
+```
+
+A composite reliability score of 0.19 for life satisfaction indicates extremely poor reliability.
+
+#Discussion
+
+When confronted with a scenario featuring perfect fit indexes alongside poor composite reliability in a measurement model, careful consideration of several factors becomes paramount. While the perfect fit indexes may initially suggest that the model aligns well with the data, the presence of poor composite reliability highlights significant concerns regarding the validity of the measurement model. Poor composite reliability can arise from various factors, including poorly formulated items, or conceptual complexities within the constructs being measured. Additionally, methodological issues such as response biases could also contribute to poor reliability.
+
+Moreover, understanding the potential impact of poor reliability on the interpretation of findings is crucial; unreliable measures can yield inconsistent or unreliable results, undermining the validity of any conclusions drawn from the SEM. Ultimately, while achieving perfect fit indexes is desirable, it should not overshadow the importance of ensuring measurement quality and validity. Striking a balance between model fit and measurement reliability is essential for producing robust and credible research findings.
+
+#visualizing the CFA
+
+```{r}
+semPaths(measurement.model.fit2, "std")
+```
+
+#error-free correlations
+
+based on the items we've selected in our measurement model, I will calculate error free correlations.
+
+```{r}
+IRP <- IRP %>%
+  mutate(meanim = (IM1 + IM5 + IM6 + IM7 + IM8 + IM11 + IM12 + IM16 + IM17)/9)
+IRP <- IRP %>%
+  mutate(meancollectivism = (HC1 + VC2)/2)
+IRP <- IRP %>%
+  mutate(meanperfectionism = (P1 + P2 + P3 + P4 + P5 + P6 + P7)/7)
+IRP <- IRP %>%
+  mutate(meanls = (LS1 + LS4)/2)
+rcorr(as.matrix(IRP[,c("meanim","meancollectivism", "meanperfectionism", "meanls")], type="pearson"))
+```
+
+-   The correlation between "Impression Management" and "Collectivism" is 0.09, suggesting a weak positive relationship between these variables.
+
+-   The correlation between "Impression Management" and "Perfectionism" is -0.05, indicating a weak negative relationship, though this correlation is closer to zero, suggesting little association between these variables.
+
+-   The correlation between "Impression Management" and "Life Satisfaction" is 0.02, indicating a very weak positive relationship, essentially no correlation.
+
+-   The correlation between "Collectivism" and "Perfectionism" is -0.03, showing a very weak negative relationship.
+
+-   The correlation between "Collectivism" and "Life Satisfaction" is 0.05, suggesting a weak positive relationship.
+
+-   The correlation between "Perfectionism" and "Life Satisfaction" is 0.01, indicating a very weak positive relationship, essentially no correlation.
+
+```{r, error=FALSE}
+library(corrplot)
+library(dplyr)
+
+# Rename columns in the data frame
+IRP_renamed <- IRP %>%
+  rename("Impression Management" = meanim,
+         "Collectivism" = meancollectivism,
+         "Perfectionism" = meanperfectionism,
+         "Life Satisfaction" = meanls)
+
+# Calculate the correlation matrix
+cor_matrix <- cor(IRP_renamed[, c("Impression Management", "Collectivism", "Perfectionism", "Life Satisfaction")])
+
+# Create a scatterplot matrix
+pairs(IRP_renamed[, c("Impression Management", "Collectivism", "Perfectionism", "Life Satisfaction")], 
+      main = "Scatterplot Matrix")
+
+# Display correlation coefficients on the scatterplot matrix with custom text properties
+corrplot(cor_matrix, method = "number", type = "upper", tl.col = "black", tl.srt = 45,
+         addCoef.col = "blue", # Change color of correlation coefficients
+         diag = FALSE, # Hide diagonal elements
+         tl.offset = 1, # Offset text
+         number.cex = 1, # Adjust size of correlation coefficient text
+         tl.cex = 0.7) # Adjust size of variable name text
+
+
+```
+
+
+##Testing the Full Latent Variable Structural Equation Model (SEM)
+
+just-identified model- hypothesized full mediation
+
+I am building an SEM where collectivism is my predictor, life satisfaction is my outcome variable, and impression management/ perfectionism are my mediators.
+
+```{r}
+structural.model <- "
+# measurement portion of model
+impression_management=~ 1*IM1 + IM5 + IM6 + IM7 + IM8 + IM11 + IM12 + IM16 + IM17
+collectivism=~ 1*HC1 + VC2 
+perfectionism=~ 1*P1 + P3 + P4 + P5 + P6 + P7 
+life_satisfaction=~ 1*LS1 + LS2 + LS4
+# structural portion of model
+perfectionism ~ a1*collectivism
+impression_management ~ a2*collectivism
+life_satisfaction ~ b1*perfectionism
+life_satisfaction~ b2*impression_management
+
+#the indirect effects
+a1b1 := a1*b1
+a2b2 := a2*b2"
+```
+
+fitting model
+
+```{r}
+structural.model.fit <- sem(structural.model, data=IRP, se = "bootstrap", bootstrap = 100)
+summary(structural.model.fit, fit.measures=TRUE, standardized=TRUE)
+```
+
+#Discussion
+
+The estimates for the paths from collectivism to perfectionism (a1) and impression management (a2) are 0. The path from perfectionism to life satisfaction (b1) is estimated at 0.15, while the path from impression management to life satisfaction (b2) is estimated at 0. However, due to convergence issues, standard errors, p-values, and fit measures were not provided. The warning message received indicates that while the optimizer claimed convergence, which could be due to the complex nature of the model or difficulties in finding an optimal solution within the specified optimization parameters.
+
+Despite the convergence issues, we can still calculate the total effects (indirect effects) a1b1 and a2b2. For a1b1, since the estimate for a1 is 0, the total effect is also 0. For a2b2, the estimate for a2 is 0.001, and since the estimate for b2 is 0, the total effect is also 0. This indicates that there is no indirect effect of collectivism on life satisfaction through either perfectionism or impression management in the hypothesized model model.
+
+It's important to interpret these results with caution due to the convergence issues. Despite efforts to adjust optimization parameters, provide starting values, and run single mediations, convergence was not achieved. This suggests that the model may be too complex or that the optimization algorithm may be struggling to find a suitable solution within the specified constraints. Consequently, the estimates and interpretations should be considered tentative until convergence can be achieved and the model's stability confirmed.
+
+```{r}
+library(lavaan)
+
+# Extract parameter estimates and bootstrap confidence intervals
+parameterEstimates(structural.model.fit, boot.ci = TRUE)
+```
+
+```{r}
+lavInspect(structural.model.fit, what = "rsquare")
+```
+
+#single-mediator models
+
+Due to issues with convergence- here I conduct single mediation SEM's to try address these convergence issues.
+
+Here I am conducted a full mediation with only perfectionism as my mediator
+
+```{r}
+structural.model.2 <- "
+# measurement portion of model
+collectivism=~ 1*HC1 + VC2 
+perfectionism=~ 1*P1 + P3 + P4 + P5 + P6 + P7 
+life_satisfaction=~ 1*LS1 + LS4
+# structural portion of model
+perfectionism ~ a*collectivism
+life_satisfaction ~ b*perfectionism
+
+#the indirect effects
+ab := a*b"
+```
+
+Various strategies such as adjusting optimization parameters, providing starting values, and simplifying the model to address convergence issues.
+
+```{r}
+# Run the SEM model with bootstrapping
+structural.model.fit2 <- sem(
+  structural.model.2, 
+  data = IRP, 
+  se = "bootstrap",  # Specify bootstrapping
+  bootstrap = 100,
+  control = list(maxiter = 1000)  # Increase max iterations
+)
+
+# Obtain summary of the model with fit measures
+summary_fit <- summary(structural.model.fit2, fit.measures = TRUE)
+
+# Extract parameter estimates with bootstrap confidence intervals
+parameter_estimates <- summary_fit$Boot.estimates
+
+# Print parameter estimates with bootstrap confidence intervals
+print(parameter_estimates)
+```
+
+Has not seemed to fix convergence issues.
+
+##over-identified model with direct path added
+
+Similar to my just-identified model, my predictor is collectivism, outcome variable is life satisfaction, my mediators are perfectionism/ impression management, however now we are adding a direct path between collectivism and life satisfaction, conducting a partial mediation.
+
+```{r}
+sem.model2 <- "
+#measurement portion of model
+impression_management=~ 1*IM1 + IM2 + IM5 + IM6 + IM7 + IM8 + IM11 + IM12 + IM16 + IM17
+collectivism=~ 1*HC1 + VC2 
+perfectionism=~ 1*P1 + P3 + P4 + P5 + P6 + P7 
+life_satisfaction=~ 1*LS1 + LS4
+# structural portion of model
+perfectionism ~ a1*collectivism
+impression_management ~ a2*collectivism
+life_satisfaction ~ b1*perfectionism
+life_satisfaction~ b2*impression_management
+life_satisfaction ~ c*collectivism  # Additional direct path
+
+#the indirect effects
+a1b1 := a1*b1
+a2b2 := a2*b2"
+```
+
+#fit over-identified model
+
+```{r}
+sem.model.fit2 <- sem(sem.model2, data=IRP,se = "bootstrap", bootstrap = 100)
+summary(sem.model.fit2, fit.measures=TRUE, standardized=TRUE)
+```
+
+```{r}
+lavInspect(sem.model.fit2, what = "rsquare")
+```
+
+#Discussion
+
+Collectivism exhibits a null coefficient on perfectionism (a1). Perfectionism(b1) exhibits a negative coefficient (-9.848), implying that increased levels of perfectionism are associated with decreased life satisfaction, holding other variables constant.Whilst perfectionism seems to predict negative levels of life satisfaction, the indirect path (a1b1) between collectivism and life satisfaction via perfectionism is null.
+
+Similarly, collectivism (a2) has a null effect on impression management, whilst impression management(b2) shows a positive coefficient (890.917), indicating that individuals who engage more in impression management tend to report higher life satisfaction levels. Overall, the pathway between collectivism and life satisfaction via impression management (a2b2) is also null.
+
+Interestingly, collectivism demonstrates a negative coefficient (-0.137), suggesting that higher levels of collectivism are associated with reduced life satisfaction.
+
+However, these interpretations are most likely unreliable and must be approached with caution due to the lack of bootstrapping and the warning message regarding convergence issues. The absence of bootstrapping means we cannot assess the stability and reliability of the coefficients, while the convergence issues raise doubts about the accuracy of the parameter estimates and their standard errors. Consequently, these methodological concerns underscore the need for further validation and replication of the findings using robust statistical techniques. Addressing these issues is crucial to ensure the reliability and validity of the results and to draw more substantive conclusions regarding the relationships between the variables in question.
+
+# supplementary analysis- single regressions
+
+Here I am analyzing each path in my SEM as single regressions to capture any particular prominent relationships. Due to the inconclusivity of my mediated SEM's, by conducting single regression SEM's helps achieve convergence to a certain degree and allows me to extract more meaningful and valid findings. 
+
+Here I am conducting a single regression between collectivism and impression management
+
+```{r}
+col.im.reg <-"
+# measurement portion of model
+impression_management=~ 1*IM1 + IM2 + IM5 + IM6 + IM7 + IM8 + IM11 + IM12 + IM16 + IM17
+collectivism=~ 1*HC1 + VC2 
+#structural portion
+impression_management~collectivism"
+```
+
+```{r}
+col.im.fit <- sem(col.im.reg, data=IRP,se = "bootstrap", bootstrap = 100)
+summary(col.im.fit, fit.measures=TRUE, standardized=TRUE)
+```
+bootstrapping still not entirely running
+
+```{r}
+library(lavaan)
+
+# Extract parameter estimates and bootstrap confidence intervals
+parameterEstimates(col.im.fit, boot.ci = TRUE)
+```
+
+```{r}
+lavInspect(col.im.fit, what = "rsquare")
+```
+
+```{r}
+semPaths(col.im.fit, "std")
+```
+
+#Discussion 
+The regression coefficient (β) for the relationship between impression management and collectivism is -0.016, with a p-value of 0.927. This suggests that there is no statistically significant association between these variables based on the regression analysis. In other words, the evidence from the regression analysis does not support the presence of a meaningful relationship between impression management and collectivism in the context of the study.
+
+Both RMSEA and SRMR values, though indicating good fit to the data,the TLI value of 3.448 is unusually high and may indicate potential issues with model identification or specification. The CFI value of 1.000 indicates perfect fit between the specified model and the data. This may indicate that other unmeasured or omitted variables in the model are driving the relationships of interest.
+
+
+single regression between collectivism and perfectionism
+
+```{r}
+col.per.reg <-"
+# measurement portion of model
+perfectionism=~ 1*P1 + P3 + P4 + P5 + P6 + P7 
+collectivism=~ 1*HC1 + VC2 
+#structural portion
+perfectionism~collectivism"
+```
+
+fitting model
+
+```{r}
+col.per.fit <- sem(col.per.reg, data=IRP,se = "bootstrap", bootstrap = 100)
+summary(col.per.fit, fit.measures=TRUE, standardized=TRUE)
+```
+
+```{r}
+lavInspect(col.per.fit, what = "rsquare")
+```
+
+```{r}
+semPaths(col.per.fit, "std")
+```
+
+#Dicussion
+
+Regarding the regression analysis, the coefficient estimate for the relationship between perfectionism and collectivism is 0.338, with a standard error of 3.500 and a corresponding z-value of 0.097. The p-value associated with this coefficient is 0.923, indicating that the relationship between perfectionism and collectivism is not statistically significant at conventional levels of significance (e.g., α = 0.05). These findings suggest that variations in collectivism do not predict variations in perfectionism, and vice versa, based on the regression analysis.
+
+
+single regression between perfectionism and life satisfaction 
+
+```{r}
+per.ls.reg<-"
+#measurement portion of model
+perfectionism=~ 1*P1 + P3 + P4 + P5 + P6 + P7
+life_satisfaction=~ 1*LS1 + LS4
+#structural portion
+life_satisfaction~ perfectionism"
+```
+
+```{r}
+per.ls.fit <- sem(per.ls.reg, data=IRP,se = "bootstrap", bootstrap = 100)
+summary(per.ls.fit, fit.measures=TRUE, standardized=TRUE)
+```
+
+```{r}
+semPaths(per.ls.fit, "std")
+```
+#Discussion
+
+the coefficient estimate for the relationship between life satisfaction and perfectionism is 0.230, with a standard error of 0.848 and a corresponding z-value of 0.271. The associated p-value for this coefficient is 0.787, indicating that the relationship between life satisfaction and perfectionism is not statistically significant at conventional levels of significance (e.g., α = 0.05).
+
+These results suggest that variations in perfectionism do not predict variations in life satisfaction, and vice versa, based on the regression analysis. In other words, the evidence from the regression analysis does not support the presence of a meaningful association between life satisfaction and perfectionism in the context of the study.
+
+
+Regressions were also conducted between impression management and life satisfaction, and collectivism and life satisfaction, however bootstrapping did not run. Therefore there would be no added value in including those. 
+
+ 
+
+
+
